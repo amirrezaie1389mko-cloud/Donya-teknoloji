@@ -1,0 +1,73 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: lumen
+      POSTGRES_USER: lumen
+      POSTGRES_PASSWORD: lumen_pass_2026
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lumen"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: on-failure
+
+  backend:
+    image: node:22-slim
+    working_dir: /app/backend
+    volumes:
+      - ./backend:/app/backend
+      - backend_node_modules:/app/backend/node_modules
+      - uploads:/app/backend/uploads
+    command: ["sh", "-ec", "npm install --omit=dev && node server.js"]
+    environment:
+      - DATABASE_URL=postgres://lumen:lumen_pass_2026@db:5432/lumen
+      - PORT=8000
+      - ADMIN_EMAIL=admin@lumen.ir
+      - ADMIN_PASSWORD=LumenAdmin@2026
+      - UPLOAD_DIR=/app/backend/uploads
+      - BASE44_PREVIEW_MODE=${BASE44_PREVIEW_MODE:-}
+    env_file:
+      - ./.env.base44-defaults
+      - /run/base44/app.env
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:8000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 25s
+    restart: on-failure
+
+  frontend:
+    image: node:22-slim
+    working_dir: /app/frontend
+    volumes:
+      - ./frontend:/app/frontend
+      - frontend_node_modules:/app/frontend/node_modules
+    command: ["sh", "-ec", "npm install && exec npm run dev -- --host 0.0.0.0 --port 5173"]
+    ports:
+      - "3000:5173"
+    environment:
+      - __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS
+      - BASE44_PREVIEW_MODE=${BASE44_PREVIEW_MODE:-}
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:5173/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 40s
+    restart: on-failure
+
+volumes:
+  pgdata:
+  backend_node_modules:
+  frontend_node_modules:
+  uploads:
